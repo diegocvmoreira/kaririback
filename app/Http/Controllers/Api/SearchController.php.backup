@@ -1,0 +1,66 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Http\Resources\EventResource;
+use App\Http\Resources\PlaceResource;
+use App\Models\Event;
+use App\Models\Place;
+use Illuminate\Http\Request;
+
+class SearchController extends Controller
+{
+    public function __invoke(Request $request)
+    {
+        $term = trim((string) $request->input('q', ''));
+        
+        if (mb_strlen($term) < 2) {
+            return response()->json([
+                'places' => [],
+                'events' => [],
+                'total' => 0,
+            ]);
+        }
+
+        $places = Place::query()
+            ->with(['city', 'categories', 'images'])
+            ->where('status', 'published')
+            ->where(function ($query) use ($term) {
+                $query->where('name', 'like', "%{$term}%")
+                    ->orWhere('short_description', 'like', "%{$term}%")
+                    ->orWhere('description', 'like', "%{$term}%")
+                    ->orWhere('neighborhood', 'like', "%{$term}%");
+            });
+
+        if ($request->filled('city')) {
+            $places->whereHas('city', function ($q) use ($request) {
+                $q->where('slug', $request->string('city'));
+            });
+        }
+
+        $events = Event::query()
+            ->with(['city', 'category', 'place'])
+            ->where('status', 'published')
+            ->where(function ($query) use ($term) {
+                $query->where('title', 'like', "%{$term}%")
+                    ->orWhere('description', 'like', "%{$term}%")
+                    ->orWhere('location_name', 'like', "%{$term}%");
+            });
+
+        if ($request->filled('city')) {
+            $events->whereHas('city', function ($q) use ($request) {
+                $q->where('slug', $request->string('city'));
+            });
+        }
+
+        $places = $places->limit(30)->get();
+        $events = $events->limit(30)->get();
+
+        return response()->json([
+            'places' => PlaceResource::collection($places),
+            'events' => EventResource::collection($events),
+            'total' => $places->count() + $events->count(),
+        ]);
+    }
+}
